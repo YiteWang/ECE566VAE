@@ -18,7 +18,8 @@ class vanillaVAE(nn.Module):
 
         assert len(h_channels) == 5, "h_channels must be a list of length = 5"
         self.channels = [input_channel] + h_channels
-
+        self.latent_size = latent_size
+        
         # List for constructing the encoder/decoder architecture
         encoder_arch = []
         decoder_arch = []
@@ -34,7 +35,7 @@ class vanillaVAE(nn.Module):
             return nn.Sequential(
                 nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding),
                 nn.BatchNorm2d(out_channels),
-                nn.ReLU(inplace=True),
+                nn.LeakyReLU(),
             )
 
         def transconv_block(in_channels, out_channels, kernel_size=3, stride=2, padding=1, output_padding=1):
@@ -48,7 +49,7 @@ class vanillaVAE(nn.Module):
             return nn.Sequential(
                 nn.ConvTranspose2d(in_channels, out_channels, kernel_size, stride, padding, output_padding),
                 nn.BatchNorm2d(out_channels),
-                nn.ReLU(inplace=True),
+                nn.LeakyReLU(),
             )
 
         ## Define the encoder architecture
@@ -66,7 +67,7 @@ class vanillaVAE(nn.Module):
         
         decoder_arch += [nn.ConvTranspose2d(self.channels[1], self.channels[1], kernel_size=3, stride=2, padding=1, output_padding=1),
                         nn.BatchNorm2d(self.channels[1]),
-                        nn.ReLU(inplace=True),
+                        nn.LeakyReLU(),
                         nn.ConvTranspose2d(self.channels[1], self.channels[0], kernel_size=3, stride=1, padding=1),
                         nn.Tanh()]
 
@@ -110,5 +111,5 @@ class vanillaVAE(nn.Module):
         return recon_loss + coeff * kl_loss
 
     def generate(self, n_samples=64):
-        z = torch.randn(n_samples, self.latent_size)
+        z = torch.randn(n_samples, self.latent_size).cuda()
         return self.decode(z)
