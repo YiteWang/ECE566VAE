@@ -68,7 +68,7 @@ class vanillaVAE(nn.Module):
         decoder_arch += [nn.ConvTranspose2d(self.channels[1], self.channels[1], kernel_size=3, stride=2, padding=1, output_padding=1),
                         nn.BatchNorm2d(self.channels[1]),
                         nn.LeakyReLU(),
-                        nn.ConvTranspose2d(self.channels[1], self.channels[0], kernel_size=3, stride=1, padding=1),
+                        nn.Conv2d(self.channels[1], self.channels[0], kernel_size=3, stride=1, padding=1),
                         nn.Tanh()]
 
         ## Define the encoder and decoder architecture
@@ -105,9 +105,10 @@ class vanillaVAE(nn.Module):
         x_recon, mu, logvar = self.forward(x)
         assert x_recon.shape == x.shape, "x_recon.shape = {} and x.shape = {}".format(x_recon.shape, x.shape)
         # Reconstruction loss
-        recon_loss = F.mse_loss(x_recon, x, reduction='sum')
+        # recon_loss = F.mse_loss(x_recon, x, reduction='sum')
+        recon_loss = F.mse_loss(x_recon, x)
         # KL divergence loss
-        kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        kl_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
         return recon_loss + coeff * kl_loss
 
     def generate(self, n_samples=64):

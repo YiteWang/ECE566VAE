@@ -23,6 +23,11 @@ def main(args):
     # Setting the threshold of logger to DEBUG
     logger.setLevel(logging.DEBUG)
 
+    # Print all arguments
+    logger.info('All arguments: \n')
+    for arg_name in vars(args):
+        logger.info('{}: {}'.format(arg_name, getattr(args, arg_name)))
+
     normalize = transforms.Lambda(lambda X: 2 * X - 1.)
 
     if args.dataset == 'celeba':
@@ -67,7 +72,7 @@ def train(vae, train_loader, optimizer, epoch, args):
         if i % args.log_interval == 0:
             logger.info('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, i * args.batch_size, total_images,
-                1.0 * args.batch_size * i / total_images,
+                100.0 * args.batch_size * i / total_images,
                 loss.item() / total_images))
     time_end = time.time()
     logger.info('====> Epoch: {} Average loss: {:.4f}, Time used: {:.4f} s.'.format(epoch, train_loss / len(train_loader.dataset), time_end-time_start))
