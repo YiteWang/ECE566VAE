@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 ## Class for vanilla convolutional VAE
-class BaseVAE(nn.Module):
+class vanillaVAE(nn.Module):
 
     def __init__(self, input_channel=3, h_channels=[64,64,64,64,64], latent_size=100,):
         '''
@@ -14,7 +14,7 @@ class BaseVAE(nn.Module):
         ::param h_channels: number of channels of the hidden layers
         ::param latent_size: size of the latent space
         '''
-        super(BaseVAE, self).__init__()
+        super(vanillaVAE, self).__init__()
 
         assert len(h_channels) == 5, "h_channels must be a list of length = 5"
         self.channels = [input_channel] + h_channels
@@ -37,7 +37,7 @@ class BaseVAE(nn.Module):
                 nn.ReLU(inplace=True),
             )
 
-        def transconv_block(in_channels, out_channels, kernel_size=3, stride=2, padding=1, ouput_padding=1):
+        def transconv_block(in_channels, out_channels, kernel_size=3, stride=2, padding=1, output_padding=1):
             '''
             ::param in_channels: number of channels of the input tensor
             ::param out_channels: number of channels of the output tensor
@@ -59,13 +59,16 @@ class BaseVAE(nn.Module):
         encoder_arch += [nn.Flatten()]
 
         ## Define the decoder architecture
-        for i in range(len(self.channels)-1):
+        for i in range(len(self.channels)-2):
             decoder_arch += [
                 transconv_block(self.channels[-i-1], self.channels[-i-2]),
             ]
         
-        decoder_arch += [nn.ConvTranspose2d(self.channels[0], self.channels[0], kernel_size=3, stride=1, padding=1),
-                         nn.Tanh()]
+        decoder_arch += [nn.ConvTranspose2d(self.channels[1], self.channels[1], kernel_size=3, stride=2, padding=1, output_padding=1),
+                        nn.BatchNorm2d(self.channels[1]),
+                        nn.ReLU(inplace=True),
+                        nn.ConvTranspose2d(self.channels[1], self.channels[0], kernel_size=3, stride=1, padding=1),
+                        nn.Tanh()]
 
         ## Define the encoder and decoder architecture
         self.encoder = nn.Sequential(*encoder_arch)
@@ -97,8 +100,9 @@ class BaseVAE(nn.Module):
         z = self.reparameterize(mu, logvar)
         return self.decode(z), mu, logvar
 
-    def compute_loss(self, x, coeff=0.1):
+    def compute_loss(self, x, coeff=0.1, **kwargs):
         x_recon, mu, logvar = self.forward(x)
+        assert x_recon.shape == x.shape, "x_recon.shape = {} and x.shape = {}".format(x_recon.shape, x.shape)
         # Reconstruction loss
         recon_loss = F.mse_loss(x_recon, x, reduction='sum')
         # KL divergence loss
