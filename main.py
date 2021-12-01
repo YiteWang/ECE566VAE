@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models import vanillaVAE
+from models import vanillaVAE, IWAE
 import argparse
 from torchvision import transforms, utils
 from torchvision.datasets import CelebA
@@ -10,7 +10,8 @@ import os
 import time
 import logging
 
-vae_models = {'vanilla': vanillaVAE}
+vae_models = {'vanilla': vanillaVAE,
+            'IWAE':IWAE,}
 
 def main(args):
     logging.basicConfig(filename= os.path.join(args.result_path,"VAE_results.log"),
@@ -65,7 +66,7 @@ def train(vae, train_loader, optimizer, epoch, args):
         images, labels = data
         images, labels = images.cuda(), labels.cuda()
         optimizer.zero_grad()
-        loss = vae.compute_loss(x=images,labels=labels,coeff=1.0*args.batch_size/total_images)
+        loss = vae.compute_loss(x=images, labels=labels, coeff=1.0*args.batch_size/total_images, num_samples=args.num_samples)
         loss.backward()
         train_loss += loss.item()
         optimizer.step()
@@ -86,7 +87,7 @@ def test(vae, test_loader, epoch, args):
         for i, data in enumerate(test_loader):
             images, labels = data
             images, labels = images.cuda(), labels.cuda()
-            loss = vae.compute_loss(x=images,labels=labels,coeff=1.0*args.batch_size/total_images)
+            loss = vae.compute_loss(x=images, labels=labels, coeff=1.0*args.batch_size/total_images, num_samples=args.num_samples)
             test_loss += loss.item()
 
         logger.info('Test set: Average loss: {:.4f}'.format(test_loss / len(test_loader.dataset)))
@@ -115,13 +116,17 @@ if __name__ == '__main__':
     parser.add_argument('--latent_size', type=int, default=128, help='Latent dimension')
     parser.add_argument('--vae_type', type=str, default='vanilla', choices=['vanilla','IWAE','MIWAE'], help='Type of VAE')
     parser.add_argument('--img_size', type=int, default=64, help='Image size after transformations')
-    parser.add_argument('--num_workers', type=int, default=0, help='Number of workers for dataset')
+    parser.add_argument('--num_workers', type=int, default=8, help='Number of workers for dataset')
     parser.add_argument('--log_interval', type=int, default=100, help='Logging interval')
-
+    parser.add_argument('--num_samples', type=int, default=5, help='Number of samples for IWAE')
+    parser.add_argument('--stamp', type=str, help='Stamp for saving results')
     args = parser.parse_args()
 
-    timestamp = "{:}".format(time.strftime('%h-%d-%C_%H-%M-%s', time.gmtime(time.time())))
-    args.result_path = os.path.join(args.result_path, timestamp)
+    if args.stamp:
+        args.result_path = os.path.join(args.result_path, args.stamp)
+    else:
+        timestamp = "{:}".format(time.strftime('%h-%d-%C_%H-%M-%s', time.gmtime(time.time())))
+        args.result_path = os.path.join(args.result_path, timestamp)
     
     assert torch.cuda.is_available(), 'CUDA is not available.'
 
