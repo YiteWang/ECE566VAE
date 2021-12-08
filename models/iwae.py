@@ -4,7 +4,14 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.distributions as dist
+import torch.distributions as torchdist
+
+def logmeanexp(inputs, dim=1): # ***
+    if inputs.size(dim) == 1:
+        return inputs
+    else:
+        input_max = inputs.max(dim, keepdim=True)[0]
+        return (inputs - input_max).exp().mean(dim).log() + input_max
 
 ## Class for IWAE convolutional VAE
 class IWAE(nn.Module):
@@ -94,7 +101,7 @@ class IWAE(nn.Module):
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5*logvar)
-        distribtuion = dist.Normal(mu, std)
+        distribtuion = torchdist.Normal(mu, std)
         z = distribtuion.rsample()
         return z, distribtuion
 
@@ -117,7 +124,7 @@ class IWAE(nn.Module):
         # Find log p(z)
         mu_prior = torch.zeros_like(z)
         std_prior = torch.ones_like(z)
-        dist_prior = dist.Normal(mu_prior, std_prior)
+        dist_prior = torchdist.Normal(mu_prior, std_prior)
         log_pz = dist_prior.log_prob(z) # size should be batch*numsamples x latent_size
         log_pz = log_pz.view(B, num_samples, self.latent_size)
         log_pz = torch.sum(log_pz, dim=-1) # size should be batch x num_samples
@@ -126,9 +133,37 @@ class IWAE(nn.Module):
         log_px_z = -(x_recon-x).pow(2).view(B, num_samples, C, H, W).flatten(2).mean(-1) # Reduce to batch_size x num_samples
 
         w = log_px_z + coeff * (log_pz - log_qz_x) # size = batch x num_samples
-        loss = -torch.mean(torch.logsumexp(w, 1)) # size = 1
+        loss = -torch.mean(logmeanexp(w, 1)) # size = 1
 
         return loss
+
+    def test_loss(self, x, coeff=0.1, num_samples = 64, **kwargs):
+        B, C, H ,W = x.size()
+        x = x.repeat(num_samples, 1, 1, 1 ,1).permute(1, 0, 2, 3, 4).contiguous().view(B*num_samples, C, H, W) # Batch x num_samples x C x H x W
+        x_recon, z, dist_qz_x, mu, logvar = self.forward(x)
+        assert x_recon.shape == x.shape, "x_recon.shape = {} and x.shape = {}".format(x_recon.shape, x.shape)
+
+        # Find log q(z|x)
+        log_qz_x = dist_qz_x.log_prob(z) # shape = batch*num_samples x latent_size
+        log_qz_x = log_qz_x.view(B, num_samples, self.latent_size) # shape = batch x num_samples x latent_size
+        log_qz_x = torch.sum(log_qz_x, dim=-1) # sum over latent_size, now size = batch x num_samples
+
+        # Find log p(z)
+        mu_prior = torch.zeros_like(z)
+        std_prior = torch.ones_like(z)
+        dist_prior = torchdist.Normal(mu_prior, std_prior)
+        log_pz = dist_prior.log_prob(z) # size should be batch*numsamples x latent_size
+        log_pz = log_pz.view(B, num_samples, self.latent_size)
+        log_pz = torch.sum(log_pz, dim=-1) # size should be batch x num_samples
+
+        # Find log p(x|z)
+        log_px_z = -(x_recon-x).pow(2).view(B, num_samples, C, H, W).flatten(2).mean(-1) # Reduce to batch_size x num_samples
+        recontruction_loss = -(x_recon-x).pow(2).view(B, num_samples, C, H, W).flatten(2).sum(-1).mean()
+
+        w = log_px_z + coeff * (log_pz - log_qz_x) # size = batch x num_samples
+        IWAE_loss = -torch.mean(logmeanexp(w, 1)) # size = 1
+
+        return IWAE_loss, recontruction_loss
 
     def generate(self, n_samples=64):
         z = torch.randn(n_samples, self.latent_size).cuda()
