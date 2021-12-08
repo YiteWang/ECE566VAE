@@ -46,6 +46,8 @@ def main(args):
     vae = vae_models[args.vae_type](input_channel = 3, h_channels=[32,64,128,256,512], latent_size=args.latent_size)
     vae.cuda()
 
+    # logger.info('{}'.format(args.batch_size/len(train_loader.dataset)))
+    
     optimizer = torch.optim.Adam(vae.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
 
@@ -116,7 +118,7 @@ if __name__ == '__main__':
     parser.add_argument('--epochs', type=int, default=50, help='Number of epochs')
     parser.add_argument('--dataset', type=str, default='celeba', help='Dataset to use')
     parser.add_argument('--batch_size', type=int, default=128, help='Batch size')
-    parser.add_argument('--test_batch_size', type=int, default=32, help='Batch size')
+    parser.add_argument('--test_batch_size', type=int, default=64, help='Batch size')
     parser.add_argument('--lr', type=float, default=5e-3, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-5, help='Weight decay')
     parser.add_argument('--latent_size', type=int, default=128, help='Latent dimension')
@@ -125,7 +127,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_workers', type=int, default=8, help='Number of workers for dataset')
     parser.add_argument('--log_interval', type=int, default=100, help='Logging interval')
     parser.add_argument('--num_samples', type=int, default=5, help='Number of samples for IWAE')
-    parser.add_argument('--test_samples', type=int, default=64, help='Number of samples during testing')
+    parser.add_argument('--test_samples', type=int, default=32, help='Number of samples during testing')
     parser.add_argument('--stamp', type=str, help='Stamp for saving results')
     args = parser.parse_args()
 
