@@ -1,4 +1,4 @@
-## This is file for the Basic VAE model.
+## This is file for the IWAE model.
 
 ## General imports
 import torch
@@ -12,8 +12,8 @@ def logmeanexp(inputs, dim=1): # ***
     else:
         return torch.logsumexp(inputs, dim=dim) - torch.log(torch.Tensor([inputs.size(dim)]).to(inputs.device))
 
-## Class for vanilla convolutional VAE
-class vanillaVAE(nn.Module):
+## Class for IWAE convolutional VAE
+class MIWAE(nn.Module):
 
     def __init__(self, input_channel=3, h_channels=[64,64,64,64,64], latent_size=100,):
         '''
@@ -21,7 +21,7 @@ class vanillaVAE(nn.Module):
         ::param h_channels: number of channels of the hidden layers
         ::param latent_size: size of the latent space
         '''
-        super(vanillaVAE, self).__init__()
+        super(MIWAE, self).__init__()
 
         assert len(h_channels) == 5, "h_channels must be a list of length = 5"
         self.channels = [input_channel] + h_channels
@@ -100,39 +100,46 @@ class vanillaVAE(nn.Module):
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std)
-        return eps.mul(std).add_(mu)
+        distribtuion = torchdist.Normal(mu, std)
+        z = distribtuion.rsample()
+        return z, distribtuion
 
     def forward(self, x):
-        mu, logvar = self.encode(x)
-        z = self.reparameterize(mu, logvar)
-        return self.decode(z), mu, logvar
+        mu, logvar = self.encode(x) # size of batch x num_samples x latent_size
+        z, dist = self.reparameterize(mu, logvar) # size of batch x num_samples x latent_size
+        return self.decode(z), z, dist, mu, logvar
 
-    def compute_loss(self, x, coeff=0.1, **kwargs):
-        x_recon, mu, logvar = self.forward(x)
+    def compute_loss(self, x, coeff=0.1, num_samples = 3, num_particles = 5, **kwargs):
+        B, C, H ,W = x.size()
+        x = x.repeat(num_samples, num_particles, 1, 1, 1 ,1).permute(2, 0, 1, 3, 4, 5).contiguous().view(B*num_samples*num_particles, C, H, W) # Batch*num_samples*num_particles x C x H x W
+        x_recon, z, dist_qz_x, mu, logvar = self.forward(x)
         assert x_recon.shape == x.shape, "x_recon.shape = {} and x.shape = {}".format(x_recon.shape, x.shape)
-        # Reconstruction loss
-        # recon_loss = F.mse_loss(x_recon, x, reduction='sum')
-        recon_loss = F.mse_loss(x_recon, x)
-        # KL divergence loss
-        kl_loss = torch.mean(-0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1))
-        return recon_loss + coeff * kl_loss
+
+        # Find log q(z|x)
+        log_qz_x = dist_qz_x.log_prob(z) # shape = batch*num_samples*num_particles x latent_size
+        log_qz_x = log_qz_x.view(B, num_samples, num_particles, self.latent_size) # shape = batch x num_samples x num_particles x latent_size
+        log_qz_x = torch.sum(log_qz_x, dim=-1) # sum over latent_size, now size = batch x num_samples x num_particles
+
+        # Find log p(z)
+        mu_prior = torch.zeros_like(z)
+        std_prior = torch.ones_like(z)
+        dist_prior = torchdist.Normal(mu_prior, std_prior)
+        log_pz = dist_prior.log_prob(z) # size should be batch*numsamples*num_particles x latent_size
+        log_pz = log_pz.view(B, num_samples, num_particles, self.latent_size) # batch x num_samples x num_particles x latent_size
+        log_pz = torch.sum(log_pz, dim=-1) # size should be batch x num_samples x num_particles
+
+        # Find log p(x|z)
+        log_px_z = -(x_recon-x).pow(2).view(B, num_samples, num_particles, C, H, W).flatten(3).mean(-1) # Reduce to batch_size x num_samples x num_particles
+
+        w = log_px_z + coeff * (log_pz - log_qz_x) # size = batch x num_samples x num_particles
+        loss = -torch.mean(torch.mean(logmeanexp(w, 2),dim=1),dim=0) # size = 1
+
+        return loss
 
     def test_loss(self, x, coeff=0.1, num_particles = 64, **kwargs):
-
-        def test_reparameterize(mu, logvar):
-            std = torch.exp(0.5*logvar)
-            distribtuion = torchdist.Normal(mu, std)
-            z = distribtuion.rsample()
-            return z, distribtuion
-
         B, C, H ,W = x.size()
-
         x = x.repeat(num_particles, 1, 1, 1 ,1).permute(1, 0, 2, 3, 4).contiguous().view(B*num_particles, C, H, W) # Batch x num_particles x C x H x W
-        mu, logvar = self.encode(x) # size of batch x num_particles x latent_size
-        z, dist = test_reparameterize(mu, logvar) # size of batch x num_particles x latent_size
-        x_recon, z, dist_qz_x, mu, logvar = self.decode(z), z, dist, mu, logvar
-
+        x_recon, z, dist_qz_x, mu, logvar = self.forward(x)
         assert x_recon.shape == x.shape, "x_recon.shape = {} and x.shape = {}".format(x_recon.shape, x.shape)
 
         # Find log q(z|x)
@@ -156,7 +163,7 @@ class vanillaVAE(nn.Module):
         IWAE_loss = -torch.mean(logmeanexp(w, 1)) # size = 1
 
         return IWAE_loss, recontruction_loss
-        
+
     def generate(self, n_samples=64):
         z = torch.randn(n_samples, self.latent_size).cuda()
         return self.decode(z)

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models import vanillaVAE, IWAE
+from models import vanillaVAE, IWAE, MIWAE
 import argparse
 from torchvision import transforms, utils
 from torchvision.datasets import CelebA
@@ -11,7 +11,8 @@ import time
 import logging
 
 vae_models = {'vanilla': vanillaVAE,
-            'IWAE':IWAE,}
+            'IWAE': IWAE,
+            'MIWAE': MIWAE,}
 
 def main(args):
     logging.basicConfig(filename= os.path.join(args.result_path,"VAE_results.log"),
@@ -40,7 +41,7 @@ def main(args):
         train_data = CelebA(root=args.data_path, split="train", transform=transform, download=False)
         test_data = CelebA(root=args.data_path, split="test", transform=transform, download=False)
         train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
-        test_loader = DataLoader(test_data, batch_size=args.test_batch_size, shuffle=True, num_workers=args.num_workers)
+        test_loader = DataLoader(test_data, batch_size=args.test_batch_size, shuffle=False, num_workers=args.num_workers)
     else:
         raise NotImplementedError('Unsupported dataset')
     vae = vae_models[args.vae_type](input_channel = 3, h_channels=[32,64,128,256,512], latent_size=args.latent_size)
@@ -69,7 +70,7 @@ def train(vae, train_loader, optimizer, epoch, args):
         images, labels = images.cuda(), labels.cuda()
         optimizer.zero_grad()
         # loss = vae.compute_loss(x=images, labels=labels, coeff=1.0*args.batch_size/total_images, num_samples=args.num_samples)
-        loss = vae.compute_loss(x=images, labels=labels, coeff=0.001, num_samples=args.num_samples)
+        loss = vae.compute_loss(x=images, labels=labels, coeff=0.001, num_samples=args.num_samples, num_particles=args.num_particles)
         loss.backward()
         train_loss += loss.item()
         optimizer.step()
@@ -92,7 +93,7 @@ def test(vae, test_loader, epoch, args):
             images, labels = data
             images, labels = images.cuda(), labels.cuda()
             # loss = vae.compute_loss(x=images, labels=labels, coeff=1.0*args.batch_size/total_images, num_samples=args.num_samples)
-            IWAE_64_batch, recon_batch = vae.test_loss(x=images, labels=labels, coeff=0.001, num_samples=args.test_samples)
+            IWAE_64_batch, recon_batch = vae.test_loss(x=images, labels=labels, coeff=0.001, num_particles=args.test_particles)
             IWAE_64 += IWAE_64_batch.item()
             recon += recon_batch.item()
 
@@ -126,8 +127,9 @@ if __name__ == '__main__':
     parser.add_argument('--img_size', type=int, default=64, help='Image size after transformations')
     parser.add_argument('--num_workers', type=int, default=8, help='Number of workers for dataset')
     parser.add_argument('--log_interval', type=int, default=100, help='Logging interval')
-    parser.add_argument('--num_samples', type=int, default=5, help='Number of samples for IWAE')
-    parser.add_argument('--test_samples', type=int, default=32, help='Number of samples during testing')
+    parser.add_argument('--num_samples', type=int, default=3, help='Number of samples for IWAE')
+    parser.add_argument('--num_particles', type=int, default=5, help='Number of particles for MIWAE/IWAE')
+    parser.add_argument('--test_particles', type=int, default=32, help='Number of particles during testing')
     parser.add_argument('--stamp', type=str, help='Stamp for saving results')
     args = parser.parse_args()
 
